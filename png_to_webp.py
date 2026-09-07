@@ -10,6 +10,7 @@ MESSAGES = {
     "tr": {
         "no_png": "Klasorde png yok: {folder}",
         "found": "{count} adet png dosya bulundu.",
+        "subfolder_found": "Bu klasorun icinde {count} adet png var, fakat alt klasorlerde de {sub_count} adet png bulundu. Onlar da cevrilsin mi? (y/n): ",
         "confirm": "Bu png dosyalarini webp'ye cevirmek istediginize emin misiniz? (y/n): ",
         "cancelled": "Islem iptal edildi.",
         "converted": "Cevrildi: {name} -> {dst}",
@@ -23,6 +24,7 @@ MESSAGES = {
     "en": {
         "no_png": "No png files in folder: {folder}",
         "found": "{count} png files found.",
+        "subfolder_found": "Found {count} png files in this folder, but also {sub_count} png files in subfolders. Convert those too? (y/n): ",
         "confirm": "Are you sure you want to convert these png files to webp? (y/n): ",
         "cancelled": "Operation cancelled.",
         "converted": "Converted: {name} -> {dst}",
@@ -43,14 +45,42 @@ def pick_language() -> dict:
             return MESSAGES[choice]
 
 
-def convert_folder(folder: str, msg: dict) -> None:
-    png_files = [f for f in os.listdir(folder) if f.lower().endswith(".png")]
+def find_pngs(folder: str) -> list:
+    top_level = [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".png")]
 
-    if not png_files:
+    nested = []
+    for root, _dirs, files in os.walk(folder):
+        if root == folder:
+            continue
+        for f in files:
+            if f.lower().endswith(".png"):
+                nested.append(os.path.join(root, f))
+
+    return top_level, nested
+
+
+def convert_folder(folder: str, msg: dict) -> None:
+    top_level_pngs, nested_pngs = find_pngs(folder)
+
+    if not top_level_pngs and not nested_pngs:
         print(msg["no_png"].format(folder=folder))
         return
 
-    print(msg["found"].format(count=len(png_files)))
+    png_paths = list(top_level_pngs)
+
+    if top_level_pngs:
+        print(msg["found"].format(count=len(top_level_pngs)))
+
+    if nested_pngs:
+        sub_answer = input(
+            msg["subfolder_found"].format(count=len(top_level_pngs), sub_count=len(nested_pngs))
+        ).strip().lower()
+        if sub_answer == "y":
+            png_paths.extend(nested_pngs)
+
+    if not png_paths:
+        print(msg["no_png"].format(folder=folder))
+        return
 
     answer = input(msg["confirm"]).strip().lower()
     if answer != "y":
@@ -59,15 +89,14 @@ def convert_folder(folder: str, msg: dict) -> None:
 
     converted_src_paths = []
 
-    for name in png_files:
-        src = os.path.join(folder, name)
-        dst = os.path.join(folder, os.path.splitext(name)[0] + ".webp")
+    for src in png_paths:
+        dst = os.path.splitext(src)[0] + ".webp"
         with Image.open(src) as img:
             img.save(dst, "webp", quality=QUALITY)
-        print(msg["converted"].format(name=name, dst=os.path.basename(dst)))
+        print(msg["converted"].format(name=os.path.basename(src), dst=os.path.basename(dst)))
         converted_src_paths.append(src)
 
-    print(msg["done"].format(count=len(png_files)))
+    print(msg["done"].format(count=len(png_paths)))
 
     delete_answer = input(msg["delete_prompt"]).strip().lower()
     if delete_answer == "y":
